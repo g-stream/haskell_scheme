@@ -1,6 +1,6 @@
 module Main where
-import Monad
-import System.Environmentt
+import Control.Monad
+import System.Environment
 import Control.Monad.Error
 import Text.ParserCombinators.Parsec hiding (spaces)
 main :: IO()
@@ -10,9 +10,9 @@ main = do
     putStrLn $ extractValue $ trapError evaled
 
 symbol :: Parser Char
-symbol = oneOf " !$%&|*+-/:<=?>@^_~#"
+symbol = oneOf "!$%&|*+-/:<=?>@^_~#"
 
-readExpr : : String −> ThrowsError LispVal
+readExpr :: String -> ThrowsError LispVal
 readExpr input = case parse parseExpr "lisp" input of
     Left err -> throwError $ Parser err 
     Right val -> return val
@@ -62,7 +62,7 @@ parseQuoted = do
     x <- parseExpr
     return $ List [Atom "quote", x]
 
-parseExpr :: Parse LispVal
+parseExpr :: Parser LispVal
 parseExpr = parseAtom
     <|> parseString
     <|> parseNumber
@@ -77,13 +77,13 @@ showVal :: LispVal -> String
 showVal (String contents) = "\"" ++ contents ++ "\""
 showVal (Atom name) = name
 showVal (Number contents) = show contents
-showVal (Bol True) = "#t"
+showVal (Bool True) = "#t"
 showVal (Bool False) =  "#f"
 showVal (List contents) = "(" ++ unwordsList contents ++ ")"
 showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")"
 
 unwordsList :: [LispVal] -> String
-unwordsList = unword . map showVal
+unwordsList = unwords . map showVal
 
 instance Show LispVal where show = showVal
 
@@ -92,26 +92,28 @@ eval val@(String _) = return val
 eval val@(Number _) = return val
 eval val@(Bool _) = return val
 eval (List [Atom "quote", val]) = return val
-eval (List [Atom "if", pred, conseq, alt]) = do 
+eval (List [Atom "if", pred, conseq, alt]) = do
     result <- eval pred
-    case result of 
+    case result of
         Bool False -> eval alt
         Bool True -> eval conseq
-        otherwise throwError $ TypeMismatch "boolean" result
+        otherwise -> throwError $ TypeMismatch "boolean" result
 eval (List (Atom func : args)) = mapM eval args >>= apply func
 eval badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 apply :: String -> [LispVal] -> ThrowsError LispVal
-apply func args = maybe (throwError $ NotFunction "Unrecognized primitive function args" func) ($ args) (lookup func primitives)
+apply func args = maybe (throwError $ NotFunction "Unrecognized primitive function args" func) 
+                        ($ args) 
+                        (lookup func primitives)
 
 primitives :: [(String, [LispVal] -> ThrowsError LispVal)]
-primitives = [("+", numericeBinop (+)),
-              ("-", numericeBinop (-)),
-              ("*", numericeBinop (*)),
-              ("/", numericeBinop (/)),
-              ("mod", numericeBinop div),
-              ("quotient", numericeBinop quot),
-              ("remainder", numericeBinop rem),
+primitives = [("+", numericBinop (+)),
+              ("-", numericBinop (-)),
+              ("*", numericBinop (*)),
+              ("/", numericBinop div),
+              ("mod", numericBinop div),
+              ("quotient", numericBinop quot),
+              ("remainder", numericBinop rem),
               ("=", numBoolBinop (==)),
               ("<", numBoolBinop (<)),
               (">", numBoolBinop (>)),
@@ -132,7 +134,7 @@ primitives = [("+", numericeBinop (+)),
 
 numericBinop :: (Integer -> Integer -> Integer) -> [LispVal] -> ThrowsError LispVal
 numericBinop op singleVal@[_] = throwError $ NumArgs 2 singleVal
-numBoolBinop op params = mapM unpackNum params >>= return . Numer . foldl1 op
+numericBinop op params = mapM unpackNum params >>= return . Number . foldl1 op
 
 boolBinop :: (LispVal -> ThrowsError a) -> (a-> a -> Bool) -> [LispVal] -> ThrowsError LispVal
 boolBinop unpacker op args = if length args /= 2
@@ -148,7 +150,7 @@ boolBoolBinop = boolBinop unpackBool
 
 unpackNum :: LispVal -> ThrowsError Integer
 unpackNum (Number n) = return n 
-unpackNum (STring n) = let parsed = reads n in 
+unpackNum (String n) = let parsed = reads n in 
     if null parsed
         then throwError $ TypeMismatch "number" $ String n 
         else return $ fst $ head parsed
